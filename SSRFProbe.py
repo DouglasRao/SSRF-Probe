@@ -2,12 +2,10 @@
 """
 SSRFProbe.py - Burp Suite Extension (single file)
 ==================================================
-Alternative to Collaborator Everywhere for SSRF testing.
+Configurable out-of-band (OOB) callback testing for SSRF.
 
-Key differences:
-  * Works with Burp Community (no Pro required)
-  * You define the callback endpoint (ngrok, webhook.site, oastify, etc.)
-  * Automatically injects SSRF payloads in all headers and parameters
+  * You define the callback endpoint (ngrok, webhook.site, interactsh, etc.)
+  * Automatically injects SSRF payloads in headers and parameters
   * Built-in configuration panel inside Burp UI
   * Log of all injected requests
 
@@ -44,36 +42,37 @@ C_RED  = Color(0xFF, 0x60, 0x60)
 C_GRN  = Color(0x60, 0xCC, 0x60)
 
 _SSRF_HEADERS = [
-    "X-Forwarded-For","X-Forwarded-Host","X-Host","X-Custom-IP-Authorization",
-    "X-Original-URL","X-Rewrite-URL","X-Real-IP","Client-IP","True-Client-IP",
-    "Cluster-Client-IP","X-ProxyUser-Ip","Via","Forwarded","X-Originating-IP",
-    "X-Remote-IP","X-Remote-Addr","X-Client-IP","CF-Connecting-IP",
-    "Fastly-Client-Ip","X-Forwarded","X-Wap-Profile","Contact","Referer",
-    "Origin","X-Original-Host","X-Backend-Host","Destination",
-    "X-HTTP-Host-Override","Host",
+    "CF-Connecting-IP","Client-IP","Cluster-Client-IP","Contact","Destination",
+    "Fastly-Client-Ip","Forwarded","Host","Origin","Referer",
+    "True-Client-IP","Via","X-Backend-Host","X-Client-IP","X-Custom-IP-Authorization",
+    "X-Forwarded","X-Forwarded-For","X-Forwarded-Host","X-Host","X-HTTP-Host-Override",
+    "X-Original-Host","X-Original-URL","X-Originating-IP","X-ProxyUser-Ip","X-Real-IP",
+    "X-Remote-Addr","X-Remote-IP","X-Rewrite-URL","X-Wap-Profile",
 ]
 
 _SSRF_PARAM_PATTERNS = [
-    "url","uri","path","src","source","dest","destination",
-    "redirect","redirectUrl","redirect_url","redirectUri","redirect_uri",
-    "return","returnUrl","return_url","returnTo","return_to",
-    "next","nextUrl","next_url","target","targetUrl","target_url",
-    "link","linkUrl","link_url","href","action","goto",
-    "site","page","ref","referrer","callback","callbackUrl","callback_url",
-    "proxy","proxyUrl","proxy_url","fetch","load","file",
-    "image","imageUrl","image_url","img","imgUrl","img_url",
-    "request","requestUrl","request_url","domain","host",
-    "endpoint","service","api","apiUrl","api_url","continue",
-    "forward","forwardUrl","forward_url","open","window",
-    "data","feed","webhook","notify","ping",
+    "action","api","api_url","apiUrl","callback",
+    "callback_url","callbackUrl","continue","data","dest",
+    "destination","domain","endpoint","feed","fetch",
+    "file","forward","forward_url","forwardUrl","goto",
+    "host","href","image","image_url","imageUrl",
+    "img","img_url","imgUrl","link","link_url",
+    "linkUrl","load","next","next_url","nextUrl",
+    "notify","open","page","path","ping",
+    "proxy","proxy_url","proxyUrl","redirect","redirect_uri",
+    "redirect_url","redirectUri","redirectUrl","ref","referrer",
+    "request","request_url","requestUrl","return","return_to",
+    "return_url","returnTo","returnUrl","service","site",
+    "source","src","target","target_url","targetUrl",
+    "uri","url","webhook","window",
 ]
 
 # Headers that semantically take a HOSTNAME (not a full URL). These receive a
 # hostname-only payload ("CANARY.domain.tld"), which is what servers expect.
 # All other headers receive the full URL payload ("http://CANARY.domain.tld/...").
 _HOST_STYLE = set(h.lower() for h in [
-    "Host","X-Forwarded-Host","X-Host","X-Original-Host",
-    "X-Backend-Host","X-HTTP-Host-Override","Via",
+    "Host","Via","X-Backend-Host","X-Forwarded-Host",
+    "X-Host","X-HTTP-Host-Override","X-Original-Host",
 ])
 
 def _mk_btn(txt, tip=None, bg=C_TB, fg=C_FG):
@@ -113,7 +112,6 @@ def _make_canary(length=8):
 # Supported endpoint modes: (key, display_name, format, hint, value_label)
 # Kept in alphabetical order by display_name (the order shown in the Mode combo).
 ENDPOINT_MODES = [
-    ("burp_collab",  "Burp Collaborator (oastify)", "CANARY.DOMAIN.oastify.com",          "Paste your collaborator domain", "Collaborator domain:"),
     ("custom_dns",   "Custom DNS",                  "CANARY.YOUR_DOMAIN",                 "Your controlled domain (e.g. mysite.com)", "Domain:"),
     ("custom_http",  "Custom HTTP",                 "https://YOUR_HOST/CANARY",           "Full URL of your server", "Full URL:"),
     ("interactsh",   "Interactsh (oast.fun)",       "CANARY.SUBDOMAIN.oast.fun",          "Paste your interactsh subdomain", "Interactsh subdomain:"),
@@ -124,13 +122,18 @@ ENDPOINT_MODES = [
 MODE_KEYS = [m[0] for m in ENDPOINT_MODES]
 
 LOCALHOST_PRESETS = [
-    "127.0.0.1", "localhost", "0.0.0.0", "[::1]",
-    "169.254.169.254",                           # AWS metadata
-    "metadata.google.internal",                  # GCP metadata
+    "0.0.0.0",
+    "10.0.0.1",
     "100.100.100.200",                           # Alibaba metadata
-    "192.168.0.1", "10.0.0.1", "172.16.0.1",
+    "127.0.0.1",
+    "169.254.169.254",                           # AWS metadata
+    "172.16.0.1",
+    "192.168.0.1",
+    "[::1]",
     "http://169.254.169.254/latest/meta-data/",
     "http://metadata.google.internal/computeMetadata/v1/",
+    "localhost",
+    "metadata.google.internal",                  # GCP metadata
 ]
 
 _CB      = None
@@ -162,8 +165,6 @@ def _build_payload(canary, host_style=False):
     elif mode == "interactsh":
         base = value if "." in value else value + ".oast.fun"
         url = "http://%s.%s" % (canary, base)
-    elif mode == "burp_collab":
-        url = "http://%s.%s" % (canary, value)
     elif mode == "ngrok_http":
         base = value if value.startswith("http") else "https://" + value
         url = "%s/%s" % (base.rstrip("/"), canary)
@@ -346,7 +347,7 @@ class ConfigPanel(JPanel):
         self._local_panel.add(_mk_lbl("Presets:", C_DIM, sz=11))
         from java.awt.event import ActionListener as _AL2
         ep_ref = self._ep_field
-        for ip in LOCALHOST_PRESETS[:8]:
+        for ip in LOCALHOST_PRESETS:
             btn = _mk_btn(ip, "Use " + ip); btn.setFont(Font("Monospaced",Font.PLAIN,10))
             ip_v = ip
             class _IpClick(_AL2):

@@ -1,19 +1,17 @@
 # SSRF Probe — Burp Suite Extension
 
-> Alternative to **Collaborator Everywhere** that works with **Burp Community**.
-> You define the callback endpoint — ngrok, webhook.site, oastify, or any other.
+> Configurable out-of-band (OOB) callback testing for SSRF — works with **Burp Suite Community**.
+> You define the callback endpoint — ngrok, webhook.site, interactsh, or any other.
 
 ---
 
-## Why this extension?
+## Highlights
 
-| Problem with Collaborator Everywhere | Solution in SSRF Probe |
-|---|---|
-| Requires Burp Suite **Pro** | ✅ Works with **Community** |
-| Fixed endpoint (Burp Collaborator) | ✅ **You choose** the endpoint |
-| Collaborator may be blocked by WAF | ✅ Use ngrok, webhook.site, your own server |
-| No canary visibility | ✅ Full log with canary map |
-| No header selection | ✅ Choose exactly which headers to inject |
+- Works with **Burp Suite Community**
+- **You choose** the OOB callback endpoint — ngrok, webhook.site, interactsh, your own server
+- If a public OOB service is blocked by a WAF, point it at your own server
+- Full injection log with canary map
+- Choose exactly which headers to inject
 
 ---
 
@@ -37,7 +35,6 @@ In the **SSRF Probe → Configuration** tab, select the mode and enter the value
 
 | Mode | What to paste | Generated payload |
 |---|---|---|
-| **Burp Collaborator** | Your collaborator domain | `http://CANARY.domain.oastify.com` |
 | **Custom DNS** | Your controlled domain | `http://CANARY.yourdomain.com` |
 | **Custom HTTP** | Full URL of your server | `https://yourserver.com/CANARY` |
 | **Interactsh** | Your interactsh subdomain | `http://CANARY.subdomain.oast.fun` |
@@ -80,22 +77,22 @@ http://x7k2p9qr.8f713526-7500-4513-8662-40f4f97d6e2d.dnshook.site
 ## Default Injected Headers (28)
 
 ```
-X-Forwarded-For      X-Forwarded-Host     X-Host
-X-Original-URL       X-Rewrite-URL        X-Real-IP
-Client-IP            True-Client-IP       Cluster-Client-IP
-X-ProxyUser-Ip       Via                  Forwarded
-X-Originating-IP     X-Remote-IP          X-Remote-Addr
-X-Client-IP          CF-Connecting-IP     Fastly-Client-Ip
-X-Forwarded          X-Wap-Profile        Contact
-Referer              Origin               X-Original-Host
-X-Backend-Host       Destination          X-HTTP-Host-Override
-X-Custom-IP-Authorization
+CF-Connecting-IP           Client-IP                  Cluster-Client-IP
+Contact                    Destination                Fastly-Client-Ip
+Forwarded                  Origin                     Referer
+True-Client-IP             Via                        X-Backend-Host
+X-Client-IP                X-Custom-IP-Authorization  X-Forwarded
+X-Forwarded-For            X-Forwarded-Host           X-Host
+X-HTTP-Host-Override       X-Original-Host            X-Original-URL
+X-Originating-IP           X-ProxyUser-Ip             X-Real-IP
+X-Remote-Addr              X-Remote-IP                X-Rewrite-URL
+X-Wap-Profile
 ```
 
 You can deselect individually or add custom headers.
 
 ### Header payload style
-Headers that semantically take a **hostname** (`Host`, `X-Forwarded-Host`, `X-Host`, `X-Original-Host`, `X-Backend-Host`, `X-HTTP-Host-Override`, `Via`) receive a hostname-only payload (e.g. `CANARY.oastify.com`); all other headers receive the full URL payload (e.g. `http://CANARY.oastify.com/x7k2p9qr`).
+Headers that semantically take a **hostname** (`Host`, `Via`, `X-Backend-Host`, `X-Forwarded-Host`, `X-Host`, `X-HTTP-Host-Override`, `X-Original-Host`) receive a hostname-only payload (e.g. `CANARY.your-domain.com`); all other headers receive the full URL payload (e.g. `http://CANARY.your-domain.com/x7k2p9qr`).
 
 ### ⚠️ About the Host header
 `Host` is present in the list but is **NOT selected by default**: replacing the Host header breaks virtual-host routing to the target on every request. Only select it deliberately for specific tests.
@@ -106,7 +103,7 @@ Headers that semantically take a **hostname** (`Host`, `X-Forwarded-Host`, `X-Ho
 
 The extension detects parameters whose name suggests SSRF and rewrites their value with the payload:
 
-`url, uri, path, src, source, dest, destination, redirect, return, next, target, link, href, action, goto, site, page, ref, referrer, callback, proxy, fetch, load, file, image, img, request, domain, host, endpoint, service, api, continue, forward, open, data, feed, webhook, notify, ping`
+`action, api, callback, continue, data, dest, destination, domain, endpoint, feed, fetch, file, forward, goto, host, href, image, img, link, load, next, notify, open, page, path, ping, proxy, redirect, ref, referrer, request, return, service, site, source, src, target, uri, url, webhook`
 
 Supported parameter locations:
 - **Query string** (rewritten in the request line)
@@ -136,11 +133,10 @@ Right-click any request → **SSRF Probe**:
 
 | Service | Free | DNS OOB | HTTP OOB | Persistence |
 |---|:---:|:---:|:---:|:---:|
-| **Burp Collaborator** (oastify.com) | ⚠️ Pro only | ✅ | ✅ | Session |
-| **Webhook.site** | ✅ | ✅ (dnshook) | ✅ | 7 days |
-| **ngrok** | ✅ | ❌ | ✅ | Session |
-| **Interactsh** (projectdiscovery) | ✅ | ✅ | ✅ | Session |
 | **canarytokens.org** | ✅ | ✅ | ✅ | Permanent |
+| **Interactsh** (projectdiscovery) | ✅ | ✅ | ✅ | Session |
+| **ngrok** | ✅ | ❌ | ✅ | Session |
+| **Webhook.site** | ✅ | ✅ (dnshook) | ✅ | 7 days |
 | **Your own server** | ✅ | ✅* | ✅ | Permanent |
 
 \* Requires your own DNS server for DNS OOB
